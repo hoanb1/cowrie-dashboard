@@ -6,7 +6,7 @@ After=network.target
 User=cowrie
 Group=cowrie
 WorkingDirectory=/home/cowrie/cowrie
-Environment=PATH=/home/cowrie/cowrie/cowrie-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/home/cowrie/cowrie/cowrie-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/usr/bin/authbind --deep /home/cowrie/cowrie/cowrie-env/bin/cowrie start
 ExecStop=/usr/bin/authbind --deep /home/cowrie/cowrie/cowrie-env/bin/cowrie stop
 Restart=on-failure

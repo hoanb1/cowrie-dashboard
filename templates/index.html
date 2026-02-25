@@ -8,6 +8,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS and JS for world map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         @keyframes pulse-red {
             0%, 100% { background-color: rgba(239, 68, 68, 0.1); }
@@ -29,6 +32,53 @@
         }
         .smooth-transition {
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        /* Custom map styles */
+        .leaflet-container {
+            background: #1f2937;
+            border-radius: 8px;
+        }
+        .attack-marker {
+            background: #ef4444;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            width: 12px;
+            height: 12px;
+            animation: pulse-marker 2s infinite;
+        }
+        .attack-marker.heat-high {
+            background: #dc2626;
+            width: 16px;
+            height: 16px;
+        }
+        .attack-marker.heat-medium {
+            background: #f59e0b;
+            width: 14px;
+            height: 14px;
+        }
+        .attack-marker.heat-low {
+            background: #10b981;
+            width: 10px;
+            height: 10px;
+        }
+        @keyframes pulse-marker {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+        .country-label {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -105,27 +155,49 @@
                     <i class="fas fa-chart-line mr-2 text-blue-400"></i>
                     Attack Timeline
                 </h2>
-                <canvas id="timeline-chart" height="200"></canvas>
+                <div class="relative bg-gray-800 rounded" style="height: 300px; max-height: 300px; overflow: hidden;">
+                    <canvas id="timeline-chart" style="width: 100%; height: 100%; max-width: 100%; max-height: 100%;"></canvas>
+                </div>
             </div>
 
-            <!-- Top Passwords -->
+            <!-- World Attack Map -->
             <div class="glass-effect p-6 rounded-xl">
                 <h2 class="text-xl font-semibold mb-4 flex items-center">
-                    <i class="fas fa-key mr-2 text-yellow-400"></i>
-                    Top Passwords
+                    <i class="fas fa-globe-americas mr-2 text-green-400"></i>
+                    World Attack Map
+                    <span class="ml-auto text-sm text-gray-400">
+                        <span id="attack-count">0</span> attacks
+                    </span>
                 </h2>
-                <div class="space-y-2 max-h-64 overflow-y-auto">
-                    <div id="top-passwords"></div>
+                <div class="relative bg-gray-800 rounded" style="height: 300px; max-height: 300px; overflow: hidden;">
+                    <div id="world-map" style="width: 100%; height: 100%;"></div>
+                    <div id="map-tooltip" class="absolute bg-gray-900 text-white text-xs rounded px-2 py-1 pointer-events-none opacity-0 transition-opacity duration-200" style="z-index: 1000;"></div>
+                </div>
+                <div class="mt-2 flex justify-between text-xs text-gray-400">
+                    <span>🔴 Live attacks</span>
+                    <span>Click markers for details</span>
                 </div>
             </div>
         </div>
 
         <!-- Recent Attacks Table -->
         <div class="glass-effect p-6 rounded-xl mb-6">
-            <h2 class="text-xl font-semibold mb-4 flex items-center">
-                <i class="fas fa-history mr-2 text-green-400"></i>
-                Recent Attacks
-            </h2>
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold flex items-center">
+                    <i class="fas fa-history mr-2 text-green-400"></i>
+                    Recent Attacks
+                </h2>
+                <div class="flex space-x-2">
+                    <select id="export-format" class="bg-gray-700 text-white px-3 py-2 rounded-lg text-sm">
+                        <option value="json">JSON</option>
+                        <option value="csv">CSV</option>
+                    </select>
+                    <button onclick="exportLogs()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg smooth-transition flex items-center space-x-2">
+                        <i class="fas fa-download"></i>
+                        <span>Export Logs</span>
+                    </button>
+                </div>
+            </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
@@ -147,17 +219,23 @@
 
         <!-- Alerts Section -->
         <div class="glass-effect p-6 rounded-xl mb-6">
-            <h2 class="text-xl font-semibold mb-4 flex items-center">
-                <i class="fas fa-exclamation-triangle mr-2 text-red-400"></i>
-                Security Alerts
-            </h2>
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold flex items-center">
+                    <i class="fas fa-exclamation-triangle mr-2 text-red-400"></i>
+                    Security Alerts
+                </h2>
+                <button onclick="exportAlerts()" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg smooth-transition flex items-center space-x-2">
+                    <i class="fas fa-download"></i>
+                    <span>Export Alerts</span>
+                </button>
+            </div>
             <div id="alerts-container" class="space-y-2 max-h-64 overflow-y-auto">
                 <!-- Dynamic alerts -->
             </div>
         </div>
 
         <!-- Top Countries & Organizations -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div class="glass-effect p-6 rounded-xl">
                 <h2 class="text-xl font-semibold mb-4 flex items-center">
                     <i class="fas fa-flag mr-2 text-purple-400"></i>
@@ -171,6 +249,31 @@
                     Top Organizations
                 </h2>
                 <div id="top-organizations"></div>
+            </div>
+        </div>
+
+        <!-- Top Passwords & Users & IPs -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="glass-effect p-6 rounded-xl">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <i class="fas fa-key mr-2 text-yellow-400"></i>
+                    Top Passwords
+                </h2>
+                <div id="top-passwords"></div>
+            </div>
+            <div class="glass-effect p-6 rounded-xl">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <i class="fas fa-user mr-2 text-blue-400"></i>
+                    Top Users
+                </h2>
+                <div id="top-users"></div>
+            </div>
+            <div class="glass-effect p-6 rounded-xl">
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <i class="fas fa-network-wired mr-2 text-green-400"></i>
+                    Top IPs
+                </h2>
+                <div id="top-ips"></div>
             </div>
         </div>
     </main>
@@ -198,40 +301,63 @@
 
     <script>
         // Global variables
-        let socket;
         let timelineChart;
         let stats = {};
+        let updateTimeout;
+        let lastUpdateTime = 0;
+        let worldMap;
+        let attackMarkers = [];
+        let heatmapEnabled = false;
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
             initializeSocket();
             initializeCharts();
+            initializeMaps();
             loadInitialData();
         });
 
         // Socket.IO connection
         function initializeSocket() {
-            socket = io();
+            console.log('🔌 Initializing Socket.IO connection...');
             
-            socket.on('connect', function() {
-                updateConnectionStatus(true);
-            });
-            
-            socket.on('disconnect', function() {
+            try {
+                window.socket = io();
+                
+                window.socket.on('connect', function() {
+                    console.log('✅ Socket.IO connected successfully');
+                    updateConnectionStatus(true);
+                });
+                
+                window.socket.on('disconnect', function() {
+                    console.log('❌ Socket.IO disconnected');
+                    updateConnectionStatus(false);
+                });
+                
+                window.socket.on('connect_error', function(error) {
+                    console.log('❌ Socket.IO connection error:', error);
+                    updateConnectionStatus(false);
+                });
+                
+                window.socket.on('stats_update', function(data) {
+                    console.log('📊 Received stats update:', data);
+                    updateStats(data);
+                });
+                
+                window.socket.on('new_attack', function(data) {
+                    console.log('🎯 Received new attack:', data);
+                    handleNewAttack(data);
+                });
+                
+                window.socket.on('alert', function(alert) {
+                    console.log('🚨 Received alert:', alert);
+                    addAlert(alert);
+                });
+                
+            } catch (error) {
+                console.log('❌ Socket.IO initialization error:', error);
                 updateConnectionStatus(false);
-            });
-            
-            socket.on('stats_update', function(data) {
-                updateStats(data);
-            });
-            
-            socket.on('new_attack', function(data) {
-                handleNewAttack(data);
-            });
-            
-            socket.on('alert', function(alert) {
-                addAlert(alert);
-            });
+            }
         }
 
         // Update connection status
@@ -260,8 +386,9 @@
                     }]
                 },
                 options: {
-                    responsive: true,
+                    responsive: false,
                     maintainAspectRatio: false,
+                    aspectRatio: 2.5,
                     plugins: {
                         legend: {
                             labels: { color: 'white' }
@@ -274,48 +401,244 @@
                         },
                         y: {
                             ticks: { color: 'white' },
-                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                            beginAtZero: true
                         }
                     }
                 }
             });
         }
 
-        // Load initial data
-        async function loadInitialData() {
-            try {
-                const response = await fetch('/api/stats');
-                stats = await response.json();
-                updateStats(stats);
-            } catch (error) {
-                console.error('Error loading initial data:', error);
+        // Initialize maps
+        function initializeMaps() {
+            console.log('🗺️ Initializing world map...');
+            
+            // World Attack Map
+            worldMap = L.map('world-map', {
+                center: [20, 0],
+                zoom: 2,
+                zoomControl: true,
+                attributionControl: true
+            });
+            
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '© OpenStreetMap contributors © CARTO',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(worldMap);
+            
+            // Add initial attack markers from recent attacks
+            if (stats.recent_attacks) {
+                console.log('Adding initial attack markers:', stats.recent_attacks.length);
+                stats.recent_attacks.forEach(attack => {
+                    if (attack.latitude && attack.longitude) {
+                        addAttackMarker(attack);
+                    }
+                });
+            }
+            
+            console.log('✅ World map initialized successfully');
+        }
+
+        // Add attack marker to map
+        function addAttackMarker(attack) {
+            if (!attack.latitude || !attack.longitude) return;
+            
+            const heatLevel = getHeatLevel(attack.ip);
+            const markerClass = heatLevel === 'high' ? 'heat-high' : heatLevel === 'medium' ? 'heat-medium' : 'heat-low';
+            
+            // Create custom icon
+            const icon = L.divIcon({
+                className: `attack-marker ${markerClass}`,
+                iconSize: [12, 12],
+                iconAnchor: [6, 6]
+            });
+            
+            // Add to world map
+            const marker = L.marker([attack.latitude, attack.longitude], { icon })
+                .addTo(worldMap)
+                .bindPopup(`
+                    <div class="text-xs">
+                        <strong>IP:</strong> ${attack.ip}<br>
+                        <strong>Country:</strong> ${attack.country || 'Unknown'}<br>
+                        <strong>Time:</strong> ${new Date(attack.timestamp).toLocaleString()}<br>
+                        <strong>Event:</strong> ${attack.event || 'Unknown'}<br>
+                        <strong>Username:</strong> ${attack.username || 'N/A'}<br>
+                        <strong>Password:</strong> ${attack.password || 'N/A'}
+                    </div>
+                `);
+            
+            attackMarkers.push({ marker, attack });
+            updateAttackCount();
+        }
+
+        // Get heat level based on attack frequency
+        function getHeatLevel(ip) {
+            const recentAttacks = stats.recent_attacks || [];
+            const ipAttacks = recentAttacks.filter(a => a.ip === ip);
+            
+            if (ipAttacks.length >= 5) return 'high';
+            if (ipAttacks.length >= 3) return 'medium';
+            return 'low';
+        }
+
+        // Update attack count display
+        function updateAttackCount() {
+            const count = attackMarkers.length;
+            document.getElementById('attack-count').textContent = count;
+        }
+
+        // Reset map markers
+        function resetMap() {
+            attackMarkers.forEach(({ marker }) => {
+                worldMap.removeLayer(marker);
+            });
+            attackMarkers = [];
+            updateAttackCount();
+            
+            // Re-add from current stats
+            if (stats.recent_attacks) {
+                stats.recent_attacks.forEach(attack => {
+                    if (attack.latitude && attack.longitude) {
+                        addAttackMarker(attack);
+                    }
+                });
             }
         }
 
-        // Update statistics
+        // Toggle heatmap view
+        function toggleHeatmap() {
+            heatmapEnabled = !heatmapEnabled;
+            
+            if (heatmapEnabled) {
+                // Show heatmap layer (simplified - just change marker sizes)
+                attackMarkers.forEach(({ marker }) => {
+                    const icon = marker.getIcon();
+                    icon.options.iconSize = [20, 20];
+                    marker.setIcon(icon);
+                });
+            } else {
+                // Reset to normal sizes
+                attackMarkers.forEach(({ marker }) => {
+                    const icon = marker.getIcon();
+                    const popupContent = marker.getPopup().getContent();
+                    const ipMatch = popupContent.match(/IP: ([\d.]+)/);
+                    if (ipMatch) {
+                        const heatLevel = getHeatLevel(ipMatch[1]);
+                        const size = heatLevel === 'high' ? 16 : heatLevel === 'medium' ? 14 : 12;
+                        icon.options.iconSize = [size, size];
+                        marker.setIcon(icon);
+                    }
+                });
+            }
+        }
+
+        // Load initial data
+        async function loadInitialData() {
+            try {
+                console.log('📊 Loading initial data...');
+                const response = await fetch('/api/stats');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                stats = await response.json();
+                console.log('📊 Initial data loaded:', stats);
+                updateStats(stats);
+            } catch (error) {
+                console.error('Error loading initial data:', error);
+                // Set default empty values to prevent errors
+                stats = {
+                    top_countries: {},
+                    top_organizations: {},
+                    recent_attacks: [],
+                    top_passwords: {},
+                    total_connections: 0,
+                    failed_logins: 0,
+                    successful_logins: 0,
+                    unique_ips: 0
+                };
+                updateStats(stats);
+            }
+        }
+
+        // Debounced update function
+        function debouncedUpdateStats(data, delay = 500) {
+            console.log('debouncedUpdateStats called, delay:', delay);
+            clearTimeout(updateTimeout);
+            updateTimeout = setTimeout(() => {
+                console.log('Executing debounced update');
+                updateStats(data);
+            }, delay);
+        }
+
+        // Reset map markers
+        function resetMap() {
+            attackMarkers.forEach(({ marker }) => {
+                worldMap.removeLayer(marker);
+            });
+            attackMarkers = [];
+            updateAttackCount();
+            
+            // Re-add from current stats
+            if (stats.recent_attacks) {
+                stats.recent_attacks.forEach(attack => {
+                    if (attack.latitude && attack.longitude) {
+                        addAttackMarker(attack);
+                    }
+                });
+            }
+        }
+
+        // Update stats
         function updateStats(data) {
-            stats = data;
+            console.log('updateStats called with:', data);
             
-            // Update stat cards with animation
-            updateStatCard('total-connections', data.total_connections);
-            updateStatCard('failed-logins', data.failed_logins);
-            updateStatCard('successful-logins', data.successful_logins);
-            updateStatCard('unique-ips', data.unique_ips);
+            // Comprehensive null check - allow empty objects but reject null/undefined
+            if (data === null || data === undefined || typeof data !== 'object') {
+                console.log('updateStats: Invalid data provided, skipping update');
+                return;
+            }
             
-            // Update top passwords
-            updateTopPasswords(data.top_passwords);
+            // Update statistics with null checks
+            document.getElementById('total-connections').textContent = data.total_connections || 0;
+            document.getElementById('failed-logins').textContent = data.failed_logins || 0;
+            document.getElementById('successful-logins').textContent = data.successful_logins || 0;
+            document.getElementById('unique-ips').textContent = data.unique_ips || 0;
             
-            // Update recent attacks
-            updateRecentAttacks(data.recent_attacks);
+            // Update top passwords with null check
+            if (data.top_passwords && typeof data.top_passwords === 'object') {
+                updateTopPasswords(data.top_passwords);
+            }
             
-            // Update top countries
-            updateTopCountries(data.countries);
+            // Update recent attacks with null check
+            if (data.recent_attacks && Array.isArray(data.recent_attacks)) {
+                updateRecentAttacks(data.recent_attacks);
+            }
             
-            // Update top organizations
-            updateTopOrganizations(data.organizations);
+            // Update top countries with null check
+            if (data.top_countries && typeof data.top_countries === 'object') {
+                updateTopCountries(data.top_countries);
+            }
             
-            // Update timeline chart
-            updateTimelineChart(data.recent_attacks);
+            // Update top organizations with null check
+            if (data.top_organizations && typeof data.top_organizations === 'object') {
+                updateTopOrganizations(data.top_organizations);
+            }
+            
+            // Update top IPs with null check
+            if (data.top_ips && typeof data.top_ips === 'object') {
+                updateTopIPs(data.top_ips);
+            }
+            
+            // Update top users with null check
+            if (data.top_users && typeof data.top_users === 'object') {
+                updateTopUsers(data.top_users);
+            }
+            
+            // Update timeline chart with null check
+            if (data.recent_attacks && Array.isArray(data.recent_attacks)) {
+                updateTimelineChart(data.recent_attacks);
+            }
         }
 
         // Update stat card with animation
@@ -339,8 +662,13 @@
         // Update top passwords
         function updateTopPasswords(passwords) {
             const container = document.getElementById('top-passwords');
+            if (!passwords || typeof passwords !== 'object') {
+                container.innerHTML = '<div class="text-gray-400 text-sm p-2">No passwords data available</div>';
+                return;
+            }
             container.innerHTML = Object.entries(passwords)
-                .slice(0, 10)
+                .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                .slice(0, 200) // Top 200 passwords
                 .map(([password, count], index) => `
                     <div class="flex justify-between items-center p-2 hover:bg-white hover:bg-opacity-10 rounded smooth-transition">
                         <span class="flex items-center">
@@ -377,48 +705,239 @@
         // Update top countries
         function updateTopCountries(countries) {
             const container = document.getElementById('top-countries');
-            container.innerHTML = Object.entries(countries)
-                .slice(0, 10)
-                .map(([country, count], index) => `
-                    <div class="flex justify-between items-center p-2 hover:bg-white hover:bg-opacity-10 rounded smooth-transition">
-                        <span class="flex items-center">
-                            <span class="text-purple-400 mr-2">#${index + 1}</span>
-                            <span>${country}</span>
-                        </span>
-                        <span class="bg-purple-600 px-2 py-1 rounded text-xs">${count}</span>
-                    </div>
-                `).join('');
+            if (!countries || typeof countries !== 'object') {
+                container.innerHTML = '<div class="text-gray-400 text-sm p-2">No countries data available</div>';
+                return;
+            }
+            
+            // Create chart container
+            container.innerHTML = `
+                <div class="relative" style="height: 300px;">
+                    <canvas id="countries-chart"></canvas>
+                </div>
+            `;
+            
+            // Prepare chart data
+            const chartData = Object.entries(countries)
+                .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                .slice(0, 10); // Top 10 countries for chart
+            
+            const labels = chartData.map(([country]) => country);
+            const data = chartData.map(([, count]) => count);
+            
+            // Create chart
+            const ctx = document.getElementById('countries-chart').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (window.countriesChart) {
+                window.countriesChart.destroy();
+            }
+            
+            window.countriesChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Attack Count',
+                        data: data,
+                        backgroundColor: 'rgba(168, 85, 247, 0.6)',
+                        borderColor: 'rgba(168, 85, 247, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)',
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
         }
 
         // Update top organizations
         function updateTopOrganizations(organizations) {
             const container = document.getElementById('top-organizations');
-            container.innerHTML = Object.entries(organizations)
-                .slice(0, 10)
-                .map(([org, count], index) => `
+            if (!organizations || typeof organizations !== 'object') {
+                container.innerHTML = '<div class="text-gray-400 text-sm p-2">No organizations data available</div>';
+                return;
+            }
+            
+            // Create chart container
+            container.innerHTML = `
+                <div class="relative" style="height: 300px;">
+                    <canvas id="organizations-chart"></canvas>
+                </div>
+            `;
+            
+            // Prepare chart data
+            const chartData = Object.entries(organizations)
+                .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                .slice(0, 10); // Top 10 organizations for chart
+            
+            const labels = chartData.map(([org]) => org || 'Unknown');
+            const data = chartData.map(([, count]) => count);
+            
+            // Create chart
+            const ctx = document.getElementById('organizations-chart').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (window.organizationsChart) {
+                window.organizationsChart.destroy();
+            }
+            
+            window.organizationsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Attack Count',
+                        data: data,
+                        backgroundColor: 'rgba(249, 115, 22, 0.6)',
+                        borderColor: 'rgba(249, 115, 22, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)',
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update top IPs
+        function updateTopIPs(ips) {
+            const container = document.getElementById('top-ips');
+            if (!ips || typeof ips !== 'object') {
+                container.innerHTML = '<div class="text-gray-400 text-sm p-2">No IPs data available</div>';
+                return;
+            }
+            container.innerHTML = Object.entries(ips)
+                .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                .slice(0, 200) // Top 200 IPs
+                .map(([ip, count], index) => `
                     <div class="flex justify-between items-center p-2 hover:bg-white hover:bg-opacity-10 rounded smooth-transition">
                         <span class="flex items-center">
-                            <span class="text-orange-400 mr-2">#${index + 1}</span>
-                            <span class="text-sm">${org || 'Unknown'}</span>
+                            <span class="text-green-400 mr-2">#${index + 1}</span>
+                            <span class="font-mono text-sm">${ip}</span>
                         </span>
-                        <span class="bg-orange-600 px-2 py-1 rounded text-xs">${count}</span>
+                        <span class="bg-green-600 px-2 py-1 rounded text-xs">${count}</span>
+                    </div>
+                `).join('');
+        }
+
+        // Update top users
+        function updateTopUsers(users) {
+            const container = document.getElementById('top-users');
+            if (!users || typeof users !== 'object') {
+                container.innerHTML = '<div class="text-gray-400 text-sm p-2">No users data available</div>';
+                return;
+            }
+            container.innerHTML = Object.entries(users)
+                .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                .slice(0, 200) // Top 200 users
+                .map(([user, count], index) => `
+                    <div class="flex justify-between items-center p-2 hover:bg-white hover:bg-opacity-10 rounded smooth-transition">
+                        <span class="flex items-center">
+                            <span class="text-blue-400 mr-2">#${index + 1}</span>
+                            <span class="font-mono text-sm">${user || '<empty>'}</span>
+                        </span>
+                        <span class="bg-blue-600 px-2 py-1 rounded text-xs">${count}</span>
                     </div>
                 `).join('');
         }
 
         // Update timeline chart
         function updateTimelineChart(attacks) {
-            if (!timelineChart) return;
+            console.log('updateTimelineChart called with:', attacks?.length || 0, 'attacks');
+            
+            if (!timelineChart) {
+                console.log('timelineChart not initialized');
+                return;
+            }
+            
+            // Rate limiting - don't update too frequently
+            const now = Date.now();
+            if (now - lastUpdateTime < 1000) {
+                console.log('Rate limited update');
+                return; // Max 1 update per second
+            }
+            lastUpdateTime = now;
+            
+            if (!attacks || attacks.length === 0) {
+                console.log('No attacks data, clearing chart');
+                // Clear chart if no data
+                timelineChart.data.labels = [];
+                timelineChart.data.datasets[0].data = [];
+                timelineChart.update('none');
+                return;
+            }
             
             // Group attacks by hour
             const hourlyData = {};
+            const hoursWithData = new Set();
+            
             attacks.forEach(attack => {
                 const hour = new Date(attack.timestamp).getHours();
                 hourlyData[hour] = (hourlyData[hour] || 0) + 1;
+                hoursWithData.add(hour);
             });
             
-            const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
-            const data = labels.map((_, i) => hourlyData[i] || 0);
+            // Only show hours that have data, sorted
+            const sortedHours = Array.from(hoursWithData).sort((a, b) => a - b);
+            const labels = sortedHours.map(hour => `${hour}:00`);
+            const data = sortedHours.map(hour => hourlyData[hour] || 0);
+            
+            console.log('Chart data:', { labels, data });
             
             timelineChart.data.labels = labels;
             timelineChart.data.datasets[0].data = data;
@@ -427,6 +946,19 @@
 
         // Handle new attack
         function handleNewAttack(data) {
+            console.log('handleNewAttack called with:', data);
+            
+            // Add attack marker to maps if coordinates available
+            if (data.latitude && data.longitude) {
+                addAttackMarker(data);
+            } else if (data.ip) {
+                // Try to get coordinates from existing data
+                const existingAttack = stats.recent_attacks?.find(a => a.ip === data.ip);
+                if (existingAttack && existingAttack.latitude && existingAttack.longitude) {
+                    addAttackMarker({...data, latitude: existingAttack.latitude, longitude: existingAttack.longitude});
+                }
+            }
+            
             if (data.type === 'cowrie.session.connect') {
                 // Flash connection indicator
                 const connectionsCard = document.querySelector('#total-connections').closest('.stat-card');
@@ -434,7 +966,14 @@
                 setTimeout(() => connectionsCard.classList.remove('alert-high'), 2000);
             }
             
-            updateStats(data.stats);
+            // Update timeline chart with new attack
+            if (data.timestamp) {
+                updateTimelineChart(stats.recent_attacks || []);
+            }
+            
+            // Use debounced update to prevent excessive calls
+            console.log('Calling debouncedUpdateStats');
+            debouncedUpdateStats(data.stats);
         }
 
         // Add alert
@@ -490,6 +1029,17 @@
             
             window.open(url, '_blank');
             closeExportModal();
+        }
+
+        function exportLogs() {
+            const format = document.getElementById('export-format').value;
+            const url = `/api/export/logs?format=${format}&limit=1000`;
+            window.open(url, '_blank');
+        }
+
+        function exportAlerts() {
+            const url = '/api/export/alerts?limit=1000';
+            window.open(url, '_blank');
         }
 
         // Utility functions

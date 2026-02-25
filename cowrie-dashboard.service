@@ -7,8 +7,10 @@ Type=simple
 User=cowrie
 Group=cowrie
 WorkingDirectory=/home/cowrie/cowrie
-Environment=PATH=/home/cowrie/cowrie/cowrie-env/bin
-ExecStart=/home/cowrie/cowrie/cowrie-env/bin/python3 /home/cowrie/cowrie/etc/dashboard.py
+Environment=PATH=/home/cowrie/cowrie/cowrie-env/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/home/cowrie/cowrie/cowrie-env/lib/python3.12/site-packages
+Environment=FLASK_ENV=production
+ExecStart=/home/cowrie/cowrie/cowrie-env/bin/python3 /home/cowrie/cowrie/cowrie_dashboard.py --host=0.0.0.0
 Restart=always
 RestartSec=10
 

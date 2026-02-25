@@ -17,15 +17,11 @@ from flask import Flask, render_template, jsonify, request, Response
 from flask_socketio import SocketIO, emit
 import os
 import sys
-import eventlet
 from pathlib import Path
-
-# Enable eventlet for better performance
-eventlet.monkey_patch()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'cowrie_monitor_optimized'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+# socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Database setup
 DB_PATH = '/home/cowrie/cowrie/var/log/cowrie/dashboard.db'
@@ -63,20 +59,14 @@ class DatabaseManager:
                 ip TEXT,
                 timestamp TIMESTAMP,
                 success BOOLEAN,
-                session_id TEXT,
-                INDEX(username),
-                INDEX(password),
-                INDEX(timestamp)
+                session_id TEXT
             );
             
             CREATE TABLE IF NOT EXISTS attack_stats (
                 ip TEXT,
                 timestamp TIMESTAMP,
                 event_type TEXT,
-                country_code TEXT,
-                INDEX(ip),
-                INDEX(timestamp),
-                INDEX(event_type)
+                country_code TEXT
             );
             
             CREATE TABLE IF NOT EXISTS alerts (
@@ -85,10 +75,17 @@ class DatabaseManager:
                 message TEXT,
                 ip TEXT,
                 timestamp TIMESTAMP,
-                acknowledged BOOLEAN DEFAULT FALSE,
-                INDEX(timestamp),
-                INDEX(level)
+                acknowledged BOOLEAN DEFAULT FALSE
             );
+            
+            CREATE INDEX IF NOT EXISTS idx_credentials_username ON credentials(username);
+            CREATE INDEX IF NOT EXISTS idx_credentials_password ON credentials(password);
+            CREATE INDEX IF NOT EXISTS idx_credentials_timestamp ON credentials(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_attack_stats_ip ON attack_stats(ip);
+            CREATE INDEX IF NOT EXISTS idx_attack_stats_timestamp ON attack_stats(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_attack_stats_event_type ON attack_stats(event_type);
+            CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_alerts_level ON alerts(level);
         """)
         
         conn.commit()
@@ -210,7 +207,8 @@ class GeoIPService:
 class CowrieMonitor:
     """Optimized Cowrie monitoring with better performance"""
     
-    def __init__(self):
+    def __init__(self, log_path='/home/cowrie/cowrie/var/log/cowrie/cowrie.json'):
+        self.log_path = log_path
         self.db_manager = DatabaseManager(DB_PATH)
         self.geoip_service = GeoIPService(self.db_manager)
         self.stats = {
@@ -378,17 +376,23 @@ class CowrieMonitor:
     
     def monitor_logs(self):
         """Monitor log files with optimized file reading"""
+        print("🔍 Starting log monitoring thread...")
         while self.running:
             try:
+                print(f"📂 Checking log file: {self.log_path}")
                 if os.path.exists(LOG_PATH):
+                    print("✅ Log file exists")
                     with open(LOG_PATH, 'r') as f:
+                        print("📖 Opened log file for reading")
                         f.seek(self.last_position)
                         new_lines = f.readlines()
+                        print(f"📄 Read {len(new_lines)} new lines from log file")
                         self.last_position = f.tell()
                         
                         for line in new_lines:
                             entry = self.parse_log_entry(line)
                             if entry:
+                                print(f"🔍 Processing log entry: {entry.get('eventid', 'unknown')}")
                                 self.update_stats(entry)
                                 self.check_alerts(entry)
                                 
@@ -398,14 +402,21 @@ class CowrieMonitor:
                                     'data': entry,
                                     'stats': self.get_stats_summary()
                                 })
+                                print("📡 Emitted real-time update via WebSocket")
+                else:
+                    print(f"❌ Log file not found: {LOG_PATH}")
                 
                 # Process any remaining batch updates
                 self.batch_update_stats()
+                print("💾 Processed batch updates")
                 
+                print("⏰ Sleeping for 1 second...")
                 time.sleep(1)  # Reduced frequency for better performance
                 
             except Exception as e:
-                print(f"Error monitoring logs: {e}")
+                print(f"❌ Error monitoring logs: {e}")
+                import traceback
+                traceback.print_exc()
                 time.sleep(5)
     
     def get_stats_summary(self):
@@ -426,75 +437,116 @@ class CowrieMonitor:
         }
 
 # Initialize monitor
-monitor = CowrieMonitor()
+# monitor = CowrieMonitor(LOG_PATH)  # Moved to main execution block
 
 # Flask routes
-@app.route('/')
-def index():
-    return render_template('index_optimized.html')
+# @app.route('/')
+# def index():
+#     return render_template('index.html')
 
-@app.route('/api/stats')
-def get_stats():
-    return jsonify(monitor.get_stats_summary())
+# @app.route('/api/stats')
+# def get_stats():
+#     # Initialize monitor if not already done
+#     global monitor
+#     if 'monitor' not in globals():
+#         monitor = CowrieMonitor(LOG_PATH)
+#     return jsonify(monitor.get_stats_summary())
 
-@app.route('/api/credentials')
-def get_credentials():
-    success_only = request.args.get('success_only', 'false').lower() == 'true'
-    limit = int(request.args.get('limit', 50))
+# @app.route('/api/credentials')
+# def get_credentials():
+#     global monitor
+#     if 'monitor' not in globals():
+#         monitor = CowrieMonitor(LOG_PATH)
+#     success_only = request.args.get('success_only', 'false').lower() == 'true'
+#     limit = int(request.args.get('limit', 50))
     
-    credentials = monitor.db_manager.get_top_credentials(limit, success_only)
-    return jsonify([{
-        'username': cred[0],
-        'password': cred[1],
-        'count': cred[2]
-    } for cred in credentials])
+#     credentials = monitor.db_manager.get_top_credentials(limit, success_only)
+#     return jsonify([{
+#         'username': cred[0],
+#         'password': cred[1],
+#         'count': cred[2]
+#     } for cred in credentials])
 
-@app.route('/api/export/credentials')
-def export_credentials():
-    success_only = request.args.get('success_only', 'false').lower() == 'true'
+# @app.route('/api/export/credentials')
+# def export_credentials():
+#     global monitor
+#     if 'monitor' not in globals():
+#         monitor = CowrieMonitor(LOG_PATH)
+#     success_only = request.args.get('success_only', 'false').lower() == 'true'
     
-    csv_data = monitor.db_manager.export_credentials_csv(success_only)
+#     csv_data = monitor.db_manager.export_credentials_csv(success_only)
     
-    response = Response(
-        csv_data,
-        mimetype='text/csv',
-        headers={
-            'Content-Disposition': f'attachment; filename=cowrie_credentials_{"success" if success_only else "all"}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        }
-    )
-    return response
+#     response = Response(
+#         csv_data,
+#         mimetype='text/csv',
+#         headers={
+#             'Content-Disposition': f'attachment; filename=cowrie_credentials_{"success" if success_only else "all"}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+#         }
+#     )
+#     return response
 
-@app.route('/api/alerts')
-def get_alerts():
-    conn = monitor.db_manager.get_connection()
-    cursor = conn.execute("""
-        SELECT level, message, ip, timestamp 
-        FROM alerts 
-        ORDER BY timestamp DESC 
-        LIMIT 50
-    """)
-    alerts = [{
-        'level': row[0],
-        'message': row[1],
-        'ip': row[2],
-        'timestamp': row[3]
-    } for row in cursor.fetchall()]
-    conn.close()
-    return jsonify(alerts)
+# @app.route('/api/alerts')
+# def get_alerts():
+#     global monitor
+#     if 'monitor' not in globals():
+#         monitor = CowrieMonitor(LOG_PATH)
+#     conn = monitor.db_manager.get_connection()
+#     cursor = conn.execute("""
+#         SELECT level, message, ip, timestamp 
+#         FROM alerts 
+#         ORDER BY timestamp DESC 
+#         LIMIT 50
+#     """)
+#     alerts = [{
+#         'level': row[0],
+#         'message': row[1],
+#         'ip': row[2],
+#         'timestamp': row[3]
+#     } for row in cursor.fetchall()]
+#     conn.close()
+#     return jsonify(alerts)
 
 # WebSocket events
-@socketio.on('connect')
-def handle_connect():
-    emit('stats_update', monitor.get_stats_summary())
+# @socketio.on('connect')
+# def handle_connect():
+#     global monitor
+#     if 'monitor' not in globals():
+#         monitor = CowrieMonitor(LOG_PATH)
+#     emit('stats_update', monitor.get_stats_summary())
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    pass
+# @socketio.on('disconnect')
+# def handle_disconnect():
+#     pass
 
 if __name__ == '__main__':
+    import sys
+    
+    # Parse command line arguments
+    port = 3333
+    host = '0.0.0.0'  # Allow external access
+    i = 1
+    while i < len(sys.argv):
+        if sys.argv[i] == '--port' and i + 1 < len(sys.argv):
+            try:
+                port = int(sys.argv[i + 1])
+                break
+            except ValueError:
+                print("Invalid port number")
+                sys.exit(1)
+        elif sys.argv[i] == '--host':
+            if i + 1 < len(sys.argv):
+                host = sys.argv[i + 1]
+                break
+        i += 1
+    
+    print(f"Starting dashboard on {host}:{port}...")
+    
+    # Initialize monitor here (not during import)
+    monitor = CowrieMonitor(LOG_PATH)
+    
     # Start monitoring thread
     monitor_thread = threading.Thread(target=monitor.monitor_logs, daemon=True)
     monitor_thread.start()
     
-    # Run with optimized settings
-    socketio.run(app, host='0.0.0.0', port=3333, debug=False)
+    # Run with explicit host binding
+    socketio.run(app, host=host, port=port, debug=False, allow_unsafe_werkzeug=True)
